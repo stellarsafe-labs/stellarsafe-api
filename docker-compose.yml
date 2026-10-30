@@ -1,0 +1,50 @@
+# Local stack: Postgres + migrations + API + worker against Stellar testnet.
+#   cp .env.example .env && docker compose up --build
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgres://stellarsafe:stellarsafe@postgres:5432/stellarsafe
+    REDIS_URL: redis://redis:6379
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_started
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: stellarsafe
+      POSTGRES_PASSWORD: stellarsafe
+      POSTGRES_DB: stellarsafe
+    ports: ['5432:5432']
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U stellarsafe']
+      interval: 2s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+
+  migrate:
+    build: .
+    command: ['node', 'dist/cli/migrate.js']
+    environment:
+      DATABASE_URL: postgres://stellarsafe:stellarsafe@postgres:5432/stellarsafe
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    ports: ['3000:3000']
+
+  worker:
+    <<: *app
+    command: ['node', 'dist/worker.js']
+
+volumes:
+  pgdata:
