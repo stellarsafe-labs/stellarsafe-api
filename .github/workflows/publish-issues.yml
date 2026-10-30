@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v8
         with:
           script: |
             const fs = require('node:fs');
@@ -59,6 +59,8 @@ jobs:
             });
             const labelNames = new Set(labels.map((l) => l.name));
 
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            const failed = [];
             let created = 0;
             for (const file of files) {
               const raw = fs.readFileSync(path.join(dir, file), 'utf8');
@@ -90,11 +92,39 @@ jobs:
                 labelNames.add(name);
               }
 
-              const { data } = await github.rest.issues.create({
-                owner, repo, title, body: body.trim(), labels: labelList,
-              });
-              titles.add(title);
-              created++;
-              core.info(`created #${data.number}: ${title}`);
+              try {
+                const number = await createWithRetry(title, body.trim(), labelList);
+                titles.add(title);
+                created++;
+                core.info(`created #${number}: ${title}`);
+              } catch (err) {
+                failed.push(title);
+                core.error(`failed: ${title}: ${err.message}`);
+              }
+              // GitHub asks for ~1s between content-creating requests to avoid secondary rate limits.
+              await sleep(1500);
             }
             core.notice(`Created ${created} issue(s) from ${files.length} file(s).`);
+            if (failed.length) core.setFailed(`${failed.length} issue(s) failed; re-run the workflow to retry.`);
+
+            // Retries transient errors (5xx, rate limits). A 5xx can still create the issue,
+            // so check for it by title before each retry to avoid duplicates.
+            async function createWithRetry(title, body, labels) {
+              for (let attempt = 1; ; attempt++) {
+                try {
+                  const { data } = await github.rest.issues.create({ owner, repo, title, body, labels });
+                  return data.number;
+                } catch (err) {
+                  const retryable = err.status >= 500 || err.status === 403 || err.status === 429;
+                  if (!retryable || attempt >= 5) throw err;
+                  const wait = 5000 * 2 ** (attempt - 1);
+                  core.warning(`attempt ${attempt} for "${title}" got ${err.status}; retrying in ${wait / 1000}s`);
+                  await sleep(wait);
+                  const { data: recent } = await github.rest.issues.listForRepo({
+                    owner, repo, state: 'all', sort: 'created', direction: 'desc', per_page: 50,
+                  });
+                  const hit = recent.find((i) => !i.pull_request && i.title === title);
+                  if (hit) return hit.number;
+                }
+              }
+            }

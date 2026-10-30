@@ -5,6 +5,10 @@ updates:
     schedule: { interval: weekly }
     groups:
       dev-dependencies: { dependency-type: development }
+    ignore:
+      # typescript-eslint doesn't support TypeScript 7 yet; remove once it does.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
