@@ -1,10 +1,14 @@
 import type { Kysely } from 'kysely';
 import { Migrator, type Migration, type MigrationProvider, type MigrationResultSet } from 'kysely/migration';
 import * as m0001 from './migrations/0001_initial.js';
+import * as m0002 from './migrations/0002_email_channel.js';
+import * as m0003 from './migrations/0003_read_path_indexes.js';
 
 /** Migrations are registered statically so they work identically from `tsx` and compiled `dist/`. */
 const migrations: Record<string, Migration> = {
   '0001_initial': m0001,
+  '0002_email_channel': m0002,
+  '0003_read_path_indexes': m0003,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

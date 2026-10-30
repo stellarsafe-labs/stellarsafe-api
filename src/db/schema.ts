@@ -144,10 +144,14 @@ export interface NotificationSubscriptionsTable {
   id: string;
   account: string;
   contract_id: string | null;
-  channel: 'webhook';
+  channel: 'webhook' | 'email';
   format: 'json' | 'slack' | 'discord';
-  url: string;
-  secret_encrypted: string;
+  url: string | null;
+  secret_encrypted: string | null;
+  email: string | null;
+  verified_at: Timestamp | null;
+  verification_token_hash: string | null;
+  verification_expires_at: Timestamp | null;
   event_types: string[];
   enabled: Generated<boolean>;
   consecutive_failures: Generated<number>;

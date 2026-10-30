@@ -20,7 +20,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['test/**/*.ts', 'src/cli/**/*.ts'],
+    files: ['test/**/*.ts', 'src/cli/**/*.ts', 'bench/**/*.ts'],
     rules: {
       'no-console': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',

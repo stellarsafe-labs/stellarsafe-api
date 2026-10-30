@@ -5,9 +5,12 @@ x-app: &app
   env_file: .env
   environment:
     DATABASE_URL: postgres://stellarsafe:stellarsafe@postgres:5432/stellarsafe
+    REDIS_URL: redis://redis:6379
   depends_on:
     migrate:
       condition: service_completed_successfully
+    redis:
+      condition: service_started
 
 services:
   postgres:
@@ -22,6 +25,9 @@ services:
       test: ['CMD-SHELL', 'pg_isready -U stellarsafe']
       interval: 2s
       retries: 20
+
+  redis:
+    image: redis:7-alpine
 
   migrate:
     build: .

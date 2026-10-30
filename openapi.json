@@ -214,7 +214,10 @@
           },
           "channel": {
             "type": "string",
-            "const": "webhook"
+            "enum": [
+              "webhook",
+              "email"
+            ]
           },
           "format": {
             "type": "string",
@@ -222,10 +225,26 @@
               "json",
               "slack",
               "discord"
-            ]
+            ],
+            "description": "Webhook payload format (ignored for email)"
           },
           "url": {
-            "type": "string"
+            "description": "Webhook URL (webhook channel)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "description": "Recipient address (email channel)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Email subscriptions receive nothing until the address is confirmed"
           },
           "treasuryId": {
             "description": "null = all treasuries you are a member of",
@@ -267,6 +286,8 @@
           "channel",
           "format",
           "url",
+          "email",
+          "verified",
           "treasuryId",
           "eventTypes",
           "enabled",
@@ -287,7 +308,10 @@
           },
           "channel": {
             "type": "string",
-            "const": "webhook"
+            "enum": [
+              "webhook",
+              "email"
+            ]
           },
           "format": {
             "type": "string",
@@ -295,10 +319,26 @@
               "json",
               "slack",
               "discord"
-            ]
+            ],
+            "description": "Webhook payload format (ignored for email)"
           },
           "url": {
-            "type": "string"
+            "description": "Webhook URL (webhook channel)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "description": "Recipient address (email channel)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Email subscriptions receive nothing until the address is confirmed"
           },
           "treasuryId": {
             "description": "null = all treasuries you are a member of",
@@ -335,8 +375,8 @@
             "type": "string"
           },
           "secret": {
-            "type": "string",
-            "description": "HMAC signing secret. Returned only on create and rotate; store it securely."
+            "description": "Webhook HMAC signing secret. Returned only on create and rotate; store it securely.",
+            "type": "string"
           }
         },
         "required": [
@@ -344,14 +384,15 @@
           "channel",
           "format",
           "url",
+          "email",
+          "verified",
           "treasuryId",
           "eventTypes",
           "enabled",
           "consecutiveFailures",
           "disabledReason",
           "createdAt",
-          "updatedAt",
-          "secret"
+          "updatedAt"
         ],
         "additionalProperties": false
       },
@@ -1091,6 +1132,25 @@
                             },
                             "treasuries": {
                               "type": "number"
+                            }
+                          },
+                          "required": [
+                            "ok"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "redis": {
+                          "description": "Present when REDIS_URL is configured",
+                          "type": "object",
+                          "properties": {
+                            "ok": {
+                              "type": "boolean"
+                            },
+                            "latencyMs": {
+                              "type": "number"
+                            },
+                            "error": {
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -3994,11 +4054,11 @@
         }
       },
       "post": {
-        "summary": "Create a webhook subscription",
+        "summary": "Create a webhook or email subscription",
         "tags": [
           "notifications"
         ],
-        "description": "Deliveries are signed: `X-StellarSafe-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, \"<t>.<body>\")>`. Only events from treasuries where you are a current member are delivered.",
+        "description": "Webhook deliveries are signed: `X-StellarSafe-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, \"<t>.<body>\")>`. Email subscriptions use double opt-in: a confirmation link is sent and nothing else is delivered until it is confirmed. Only events from treasuries where you are a current member are delivered.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4010,12 +4070,19 @@
                     "default": "webhook",
                     "type": "string",
                     "enum": [
-                      "webhook"
+                      "webhook",
+                      "email"
                     ]
                   },
                   "url": {
                     "type": "string",
                     "maxLength": 2048
+                  },
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254,
+                    "format": "email",
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
                   },
                   "format": {
                     "default": "json",
@@ -4058,10 +4125,7 @@
                       ]
                     }
                   }
-                },
-                "required": [
-                  "url"
-                ]
+                }
               }
             }
           }
@@ -4373,6 +4437,145 @@
         "responses": {
           "204": {
             "description": "Default Response"
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/preferences/{id}/resend-verification": {
+      "post": {
+        "summary": "Resend the email confirmation link (invalidates the previous one)",
+        "tags": [
+          "notifications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "queued": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "queued"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           },
           "400": {
             "description": "Default Response",
@@ -4909,6 +5112,128 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/notifications/email/verify": {
+      "get": {
+        "summary": "Email confirmation page",
+        "tags": [
+          "notifications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "summary": "Confirm an email subscription",
+        "tags": [
+          "notifications"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/notifications/email/unsubscribe": {
+      "get": {
+        "summary": "Unsubscribe confirmation page",
+        "tags": [
+          "notifications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "summary": "Unsubscribe (form post or RFC 8058 one-click)",
+        "tags": [
+          "notifications"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 200
+                  }
+                },
+                "additionalProperties": {}
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "token",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }

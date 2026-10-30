@@ -1,4 +1,5 @@
 import closeWithGrace from 'close-with-grace';
+import { Redis } from 'ioredis';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDb } from './db/index.js';
@@ -12,7 +13,11 @@ const db = createDb({
   applicationName: 'stellarsafe-api',
 });
 const chain = createChainClient(config);
-const app = await buildApp({ config, db, chain });
+const redis = config.REDIS_URL
+  ? new Redis(config.REDIS_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 2_000 })
+  : undefined;
+const app = await buildApp({ config, db, chain, ...(redis ? { redis } : {}) });
+redis?.on('error', (err) => app.log.warn({ err }, 'redis error (rate limiting fails open)'));
 const workers = config.RUN_WORKERS ? createWorkers(config, db, chain, app.log) : null;
 
 closeWithGrace({ delay: 15_000 }, async ({ signal, err }) => {
@@ -21,8 +26,14 @@ closeWithGrace({ delay: 15_000 }, async ({ signal, err }) => {
   await workers?.stop();
   await app.close();
   await db.destroy();
+  redis?.disconnect();
 });
 
+if (config.isProduction && config.TRUSTED_WASM_HASHES.length === 0) {
+  app.log.warn(
+    'TRUSTED_WASM_HASHES is empty: any deployed contract can be registered and indexed. Set it to the audited treasury build hash(es).',
+  );
+}
 await app.listen({ host: config.HOST, port: config.PORT });
 workers?.start();
 app.log.info({ network: config.STELLAR_NETWORK, workers: Boolean(workers) }, 'stellarsafe-api ready');

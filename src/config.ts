@@ -63,8 +63,15 @@ const envSchema = z
       .string()
       .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be 32 bytes, base64 encoded'),
 
+    /** SMTP connection URL (smtp:// or smtps://). Enables the email notification channel. */
+    SMTP_URL: z.url({ protocol: /^smtps?$/ }).optional(),
+    EMAIL_FROM: z.string().default('StellarSafe <notifications@stellarsafe.invalid>'),
+    /** Shared rate-limit store for multi-replica deployments. Unset = per-process memory. */
+    REDIS_URL: z.url({ protocol: /^rediss?$/ }).optional(),
     RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
     RATE_LIMIT_AUTH_MAX: z.coerce.number().int().min(1).default(20),
+    /** Per-IP per-minute limit for costly writes (treasury registration; metadata gets 3x). */
+    RATE_LIMIT_WRITE_MAX: z.coerce.number().int().min(1).default(10),
     METRICS_TOKEN: z.string().min(16).optional(),
 
     /** Run the indexer and notification dispatcher inside the API process. Prefer the separate worker in production. */

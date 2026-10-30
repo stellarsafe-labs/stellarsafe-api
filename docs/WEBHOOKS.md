@@ -1,4 +1,6 @@
-# Webhooks
+# Notifications
+
+Two channels: **webhooks** (below) and **email** (at the end).
 
 ## Subscribing
 
@@ -60,3 +62,24 @@ export function verify(rawBody: string, header: string, secret: string, toleranc
 - **`410 Gone`** disables the subscription immediately. `NOTIFY_DISABLE_AFTER_FAILURES` dead
   deliveries in a row also disable it. Re-enable with `PATCH { "enabled": true }`.
 - **History.** `GET /notifications/deliveries` shows status, attempts and the last error.
+
+## Email
+
+```http
+POST /notifications/preferences
+{ "channel": "email", "email": "treasurer@example.com", "treasuryId": "C…", "eventTypes": [] }
+```
+
+Requires `SMTP_URL`. Email uses **double opt-in**:
+
+1. Creating the subscription sends a confirmation link (valid for 24 h). Nothing else is sent
+   until the link is confirmed. `POST /notifications/preferences/:id/resend-verification` sends a
+   new link and invalidates the old one.
+2. The link opens a page with a **Confirm** button. Confirmation only happens on POST, because
+   mail security scanners prefetch links and would otherwise confirm sign-ups by themselves.
+3. Each address gets at most 3 confirmation emails per day, no matter how many accounts ask.
+   This stops throwaway accounts from flooding someone's inbox.
+
+Every notification email includes `List-Unsubscribe` and `List-Unsubscribe-Post` headers
+(RFC 8058 one-click), plus an unsubscribe link. Unsubscribing disables the subscription.
+Delivery failures retry with the same backoff as webhooks.

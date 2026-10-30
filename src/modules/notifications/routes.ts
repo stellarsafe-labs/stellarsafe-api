@@ -10,9 +10,11 @@ import type { NotificationService } from './service.js';
 const subscriptionSchema = z
   .object({
     id: z.uuid(),
-    channel: z.literal('webhook'),
-    format: z.enum(['json', 'slack', 'discord']),
-    url: z.string(),
+    channel: z.enum(['webhook', 'email']),
+    format: z.enum(['json', 'slack', 'discord']).describe('Webhook payload format (ignored for email)'),
+    url: z.string().nullable().describe('Webhook URL (webhook channel)'),
+    email: z.string().nullable().describe('Recipient address (email channel)'),
+    verified: z.boolean().describe('Email subscriptions receive nothing until the address is confirmed'),
     treasuryId: z.string().nullable().describe('null = all treasuries you are a member of'),
     eventTypes: z.array(z.string()).describe('Empty = all event types'),
     enabled: z.boolean(),
@@ -27,7 +29,8 @@ const withSecret = subscriptionSchema
   .extend({
     secret: z
       .string()
-      .describe('HMAC signing secret. Returned only on create and rotate; store it securely.'),
+      .optional()
+      .describe('Webhook HMAC signing secret. Returned only on create and rotate; store it securely.'),
   })
   .meta({ id: 'NotificationSubscriptionWithSecret' });
 
@@ -77,13 +80,15 @@ export const notificationRoutes: FastifyPluginAsyncZod<{ notifications: Notifica
       schema: {
         tags,
         security,
-        summary: 'Create a webhook subscription',
+        summary: 'Create a webhook or email subscription',
         description:
-          'Deliveries are signed: `X-StellarSafe-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`. ' +
+          'Webhook deliveries are signed: `X-StellarSafe-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`. ' +
+          'Email subscriptions use double opt-in: a confirmation link is sent and nothing else is delivered until it is confirmed. ' +
           'Only events from treasuries where you are a current member are delivered.',
         body: z.object({
-          channel: z.literal('webhook').default('webhook'),
-          url: z.string().max(2048),
+          channel: z.enum(['webhook', 'email']).default('webhook'),
+          url: z.string().max(2048).optional(),
+          email: z.email().max(254).optional(),
           format: format.default('json'),
           treasuryId: contractIdSchema.nullable().optional(),
           eventTypes: eventTypes.default([]),
@@ -129,6 +134,22 @@ export const notificationRoutes: FastifyPluginAsyncZod<{ notifications: Notifica
       await notifications.remove(requireAccount(req), req.params.id);
       return reply.status(204).send(null);
     },
+  );
+
+  app.post(
+    '/preferences/:id/resend-verification',
+    {
+      config: { rateLimit: { max: 3, timeWindow: '10 minutes' } },
+      schema: {
+        tags,
+        security,
+        summary: 'Resend the email confirmation link (invalidates the previous one)',
+        params: subParams,
+        response: { 202: z.object({ queued: z.literal(true) }), ...errorResponses },
+      },
+    },
+    async (req, reply) =>
+      reply.status(202).send(await notifications.resendVerification(requireAccount(req), req.params.id)),
   );
 
   app.post(

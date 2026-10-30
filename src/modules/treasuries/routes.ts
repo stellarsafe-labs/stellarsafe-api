@@ -55,10 +55,10 @@ const recipientSchema = z
 export const idParams = z.object({ id: contractIdSchema });
 const bearer = [{ bearerAuth: [] }];
 
-export const treasuryRoutes: FastifyPluginAsyncZod<{ treasuries: TreasuryService }> = async (
-  app,
-  { treasuries },
-) => {
+export const treasuryRoutes: FastifyPluginAsyncZod<{
+  treasuries: TreasuryService;
+  writeLimit: number;
+}> = async (app, { treasuries, writeLimit }) => {
   app.get(
     '/',
     {
@@ -80,6 +80,7 @@ export const treasuryRoutes: FastifyPluginAsyncZod<{ treasuries: TreasuryService
   app.post(
     '/',
     {
+      config: { rateLimit: { max: writeLimit, timeWindow: '1 minute' } },
       onRequest: [app.authenticate],
       schema: {
         tags: ['treasuries'],

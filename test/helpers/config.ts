@@ -14,6 +14,7 @@ export function testConfig(databaseUrl: string, overrides: Record<string, string
     SECRETS_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
     SEP10_SIGNING_SECRET: TEST_SEP10_SECRET,
     NOTIFY_ALLOW_PRIVATE_TARGETS: 'true',
+    RATE_LIMIT_WRITE_MAX: '10000',
     ...overrides,
   });
 }

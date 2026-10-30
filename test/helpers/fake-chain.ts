@@ -10,8 +10,11 @@ export class FakeChain implements ChainClient {
   balances = new Map<string, string>();
   calls: { start: number; end: number; ids: string[] }[] = [];
   failNext = 0;
+  boundsCalls = 0;
+  balanceCalls = 0;
 
   async getLedgerBounds() {
+    this.boundsCalls++;
     if (this.failNext > 0) {
       this.failNext--;
       throw new Error('rpc unavailable');
@@ -31,6 +34,7 @@ export class FakeChain implements ChainClient {
   }
 
   async getTokenBalance(token: string, holder: string) {
+    this.balanceCalls++;
     return this.balances.get(`${token}:${holder}`) ?? null;
   }
 }

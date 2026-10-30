@@ -61,3 +61,48 @@ export function renderBody(
       });
   }
 }
+
+export interface EmailLinks {
+  publicUrl: string;
+  unsubscribeToken: string;
+}
+
+/** Plain-text notification email with RFC 8058 one-click unsubscribe headers. */
+export function renderEmail(eventType: string, payload: unknown, links: EmailLinks) {
+  const p = payload as OutboxPayload;
+  const unsubscribeUrl = `${links.publicUrl}/notifications/email/unsubscribe?token=${encodeURIComponent(links.unsubscribeToken)}`;
+  const lines = [
+    summarize(p),
+    '',
+    `Treasury: ${p.treasuryId}`,
+    ...(p.txHash ? [`Transaction: ${p.txHash}`] : []),
+    ...(p.ledger ? [`Ledger: ${p.ledger}`] : []),
+    '',
+    'Always verify proposal details on-chain before signing. StellarSafe will never ask for your secret key.',
+    '',
+    `Unsubscribe: ${unsubscribeUrl}`,
+  ];
+  return {
+    subject: `[StellarSafe] ${summarize(p)}`.slice(0, 200),
+    text: lines.join('\n'),
+    headers: {
+      'List-Unsubscribe': `<${unsubscribeUrl}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      'X-StellarSafe-Event': eventType,
+    },
+  };
+}
+
+export function renderVerificationEmail(publicUrl: string, token: string) {
+  const url = `${publicUrl}/notifications/email/verify?token=${encodeURIComponent(token)}`;
+  return {
+    subject: '[StellarSafe] Confirm your notification email',
+    text: [
+      'Someone (hopefully you) asked to receive StellarSafe treasury notifications at this address.',
+      '',
+      `Confirm: ${url}`,
+      '',
+      'The link expires in 24 hours. If you did not request this, ignore this email and nothing will be sent.',
+    ].join('\n'),
+  };
+}

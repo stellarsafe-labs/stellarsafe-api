@@ -3,6 +3,7 @@ import {
   createDecipheriv,
   createHash,
   createHmac,
+  hkdfSync,
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
@@ -35,6 +36,12 @@ export class SecretBox {
     const cipher = createCipheriv('aes-256-gcm', this.key, iv);
     const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
     return [iv, cipher.getAuthTag(), ct].map((b) => b.toString('base64url')).join('.');
+  }
+
+  /** Purpose-bound MAC (HKDF-derived subkey), e.g. for unsubscribe links. */
+  mac(purpose: string, data: string): string {
+    const subkey = Buffer.from(hkdfSync('sha256', this.key, Buffer.alloc(0), `stellarsafe:${purpose}`, 32));
+    return createHmac('sha256', subkey).update(data).digest('base64url');
   }
 
   open(sealed: string): string {

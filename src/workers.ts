@@ -5,6 +5,7 @@ import { Indexer } from './indexer/indexer.js';
 import { SecretBox } from './lib/crypto.js';
 import type { Logger } from './lib/logger.js';
 import { NotificationDispatcher } from './modules/notifications/dispatcher.js';
+import { createSmtpMailer, type Mailer } from './modules/notifications/mailer.js';
 import { sendWebhook, type WebhookSender } from './modules/notifications/sender.js';
 
 export function createChainClient(config: Config): ChainClient {
@@ -41,6 +42,9 @@ export function createWorkers(
   chain: ChainClient,
   log: Logger,
   sender: WebhookSender = sendWebhook,
+  mailer: Mailer | undefined = config.SMTP_URL
+    ? createSmtpMailer(config.SMTP_URL, config.EMAIL_FROM, config.NOTIFY_TIMEOUT_MS)
+    : undefined,
 ): Workers {
   const indexer = new Indexer(db, chain, log.child({ component: 'indexer' }), {
     windowLedgers: config.INDEXER_WINDOW_LEDGERS,
@@ -57,6 +61,8 @@ export function createWorkers(
       timeoutMs: config.NOTIFY_TIMEOUT_MS,
       disableAfterFailures: config.NOTIFY_DISABLE_AFTER_FAILURES,
       allowPrivateTargets: config.NOTIFY_ALLOW_PRIVATE_TARGETS,
+      mailer,
+      publicUrl: config.PUBLIC_URL,
     },
   );
   let maintenance: NodeJS.Timeout | undefined;

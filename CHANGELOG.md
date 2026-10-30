@@ -17,3 +17,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Webhook notifications (JSON, Slack, Discord) with HMAC signatures, SSRF protection, retries,
   dead-lettering, auto-disable and a delivery log.
 - OpenAPI 3.1 docs, health and readiness probes, Prometheus metrics, Docker image, CI.
+- Email notification channel with double opt-in, per-address send caps, scanner-safe
+  confirmation pages and RFC 8058 one-click unsubscribe.
+- Optional Redis-backed rate limiting shared across replicas (fails open, reported in readiness).
+- Abuse limits: per-account registration cap, per-IP write limit, cached balance reads and probe.
+- Indexes for the treasury list and pending-proposal counts (47× faster under load), plus a
+  load-test harness (`bench/`).

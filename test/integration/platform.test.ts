@@ -37,8 +37,17 @@ describe('health', () => {
       checks: { database: { ok: true }, rpc: { ok: true, latestLedger: 1000 } },
     });
 
-    t.chain.failNext = 1;
-    const degraded = await t.app.inject({ method: 'GET', url: '/health/ready' });
+    // RPC results are cached for 5s, so hammering the public probe does not hammer RPC.
+    const calls = t.chain.boundsCalls;
+    await Promise.all(
+      Array.from({ length: 20 }, () => t.app.inject({ method: 'GET', url: '/health/ready' })),
+    );
+    expect(t.chain.boundsCalls).toBe(calls);
+
+    const fresh = await createTestApp(tdb.db, tdb.url);
+    fresh.chain.failNext = 1;
+    const degraded = await fresh.app.inject({ method: 'GET', url: '/health/ready' });
+    await fresh.app.close();
     expect(degraded.statusCode).toBe(200);
     expect(degraded.json()).toMatchObject({ status: 'degraded', checks: { rpc: { ok: false } } });
 

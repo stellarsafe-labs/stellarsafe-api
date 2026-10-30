@@ -1,4 +1,5 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import type { Redis } from 'ioredis';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import type { ChainClient } from '../../chain/chain-client.js';
@@ -7,6 +8,7 @@ import type { DB } from '../../db/index.js';
 import { safeEqual } from '../../lib/crypto.js';
 import { unauthorized } from '../../lib/errors.js';
 import { registry } from '../../lib/metrics.js';
+import { TtlCache } from '../../lib/ttl-cache.js';
 
 const check = z.object({ ok: z.boolean(), latencyMs: z.number().optional(), error: z.string().optional() });
 
@@ -15,7 +17,11 @@ export const healthRoutes: FastifyPluginAsyncZod<{
   chain: ChainClient;
   config: Config;
   version: string;
-}> = async (app, { db, chain, config, version }) => {
+  redis?: Redis | undefined;
+}> = async (app, { db, chain, config, version, redis }) => {
+  // The probe is public and unthrottled; never let it amplify into one RPC call per hit.
+  const bounds = new TtlCache<{ latestLedger: number; oldestLedger: number }>(5_000, 1);
+
   app.get(
     '/health',
     {
@@ -48,6 +54,7 @@ export const healthRoutes: FastifyPluginAsyncZod<{
               database: check,
               rpc: check.extend({ latestLedger: z.number().optional() }),
               indexer: check.extend({ lagLedgers: z.number().optional(), treasuries: z.number().optional() }),
+              redis: check.optional().describe('Present when REDIS_URL is configured'),
             }),
           }),
           503: z.unknown(),
@@ -68,10 +75,16 @@ export const healthRoutes: FastifyPluginAsyncZod<{
         }
       };
 
-      const [dbr, rpcr] = await Promise.all([
+      const [dbr, rpcr, redisr] = await Promise.all([
         timed(() => sql`SELECT 1`.execute(db)),
-        timed(() => chain.getLedgerBounds()),
+        timed(() => bounds.get('tip', () => chain.getLedgerBounds())),
+        redis ? timed(() => redis.ping()) : Promise.resolve(null),
       ]);
+      const redisCheck = redisr
+        ? redisr.ok
+          ? { ok: true, latencyMs: redisr.latencyMs }
+          : { ok: false, error: 'redis unreachable' }
+        : undefined;
       const database = dbr.ok
         ? { ok: true, latencyMs: dbr.latencyMs }
         : { ok: false, error: 'database unreachable' };
@@ -93,10 +106,13 @@ export const healthRoutes: FastifyPluginAsyncZod<{
         indexer = { ok: lag <= config.INDEXER_MAX_LAG_LEDGERS, lagLedgers: lag, treasuries: count };
       }
 
-      const status = !database.ok ? 'unavailable' : rpc.ok && indexer.ok ? 'ok' : 'degraded';
-      return reply
-        .status(status === 'unavailable' ? 503 : 200)
-        .send({ status, network: config.STELLAR_NETWORK, checks: { database, rpc, indexer } });
+      const healthy = rpc.ok && indexer.ok && (redisCheck?.ok ?? true);
+      const status = !database.ok ? 'unavailable' : healthy ? 'ok' : 'degraded';
+      return reply.status(status === 'unavailable' ? 503 : 200).send({
+        status,
+        network: config.STELLAR_NETWORK,
+        checks: { database, rpc, indexer, ...(redisCheck ? { redis: redisCheck } : {}) },
+      });
     },
   );
 

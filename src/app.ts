@@ -6,6 +6,7 @@ import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { Redis } from 'ioredis';
 import {
   jsonSchemaTransform,
   jsonSchemaTransformObject,
@@ -24,6 +25,7 @@ import { ActivityService } from './modules/activity/service.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { AuthService } from './modules/auth/service.js';
 import { healthRoutes } from './modules/health/routes.js';
+import { emailLinkRoutes } from './modules/notifications/email-routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import { NotificationService } from './modules/notifications/service.js';
 import { proposalRoutes } from './modules/proposals/routes.js';
@@ -42,6 +44,8 @@ export interface AppDeps {
   db: DB;
   chain: ChainClient;
   logger?: Logger;
+  /** When set, rate limits are shared across all API replicas. */
+  redis?: Redis;
 }
 
 export interface Services {
@@ -138,6 +142,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     global: true,
     max: config.RATE_LIMIT_MAX,
     timeWindow: '1 minute',
+    ...(deps.redis
+      ? {
+          redis: deps.redis,
+          nameSpace: 'stellarsafe:rl:',
+          // Fail open: a Redis outage degrades rate limiting instead of taking the API down.
+          skipOnError: true,
+        }
+      : {}),
     errorResponseBuilder: (_req, ctx) => ({
       statusCode: 429,
       code: 'RATE_LIMITED',
@@ -176,16 +188,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(swaggerUi, { routePrefix: '/docs', staticCSP: true });
 
   await app.register(authPlugin, { auth: services.auth });
-  await app.register(healthRoutes, { db, chain, config, version: VERSION });
+  await app.register(healthRoutes, { db, chain, config, version: VERSION, redis: deps.redis });
   await app.register(authRoutes, { prefix: '/auth', auth: services.auth, config });
-  await app.register(treasuryRoutes, { prefix: '/treasuries', treasuries: services.treasuries });
-  await app.register(proposalRoutes, { prefix: '/treasuries', proposals: services.proposals });
+  const writeLimit = config.RATE_LIMIT_WRITE_MAX;
+  await app.register(treasuryRoutes, { prefix: '/treasuries', treasuries: services.treasuries, writeLimit });
+  await app.register(proposalRoutes, { prefix: '/treasuries', proposals: services.proposals, writeLimit });
   await app.register(activityRoutes, {
     prefix: '/treasuries',
     activity: services.activity,
     treasuries: services.treasuries,
   });
   await app.register(notificationRoutes, { prefix: '/notifications', notifications: services.notifications });
+  await app.register(emailLinkRoutes, {
+    prefix: '/notifications/email',
+    notifications: services.notifications,
+  });
 
   return app;
 }

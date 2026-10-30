@@ -2,7 +2,8 @@ import type { ChainClient } from '../../chain/chain-client.js';
 import type { Config } from '../../config.js';
 import type { DB } from '../../db/index.js';
 import type { Treasury } from '../../db/schema.js';
-import { badRequest, conflict, forbidden, notFound, unprocessable } from '../../lib/errors.js';
+import { AppError, badRequest, conflict, forbidden, notFound, unprocessable } from '../../lib/errors.js';
+import { TtlCache } from '../../lib/ttl-cache.js';
 import { decodeCursor, paginate } from '../../lib/pagination.js';
 import { recordApiActivity } from '../activity/service.js';
 import { z } from 'zod';
@@ -30,8 +31,13 @@ export interface TreasuryDto {
 type TreasuryRow = Treasury & { member_count: string | number; pending_count: string | number };
 
 const listCursor = z.tuple([z.iso.datetime(), z.string()]);
+/** Each registration adds indexer load; Sybil accounts are cheap, so also keep TRUSTED_WASM_HASHES set. */
+const MAX_REGISTRATIONS_PER_ACCOUNT_PER_DAY = 20;
 
 export class TreasuryService {
+  /** Balance reads fan out to RPC simulations; cache them briefly to protect the RPC quota. */
+  private readonly balanceCache = new TtlCache<string | null>(15_000, 5_000);
+
   constructor(
     private readonly db: DB,
     private readonly chain: ChainClient,
@@ -141,6 +147,16 @@ export class TreasuryService {
       description?: string | undefined;
     },
   ): Promise<TreasuryDto> {
+    const recent = await this.db
+      .selectFrom('treasuries')
+      .select((eb) => eb.fn.countAll<string>().as('c'))
+      .where('registered_by', '=', account)
+      .where('created_at', '>', new Date(Date.now() - 24 * 3600_000))
+      .executeTakeFirstOrThrow();
+    if (Number(recent.c) >= MAX_REGISTRATIONS_PER_ACCOUNT_PER_DAY) {
+      throw new AppError(429, 'RATE_LIMITED', 'Too many treasuries registered by this account today');
+    }
+
     const existing = await this.db
       .selectFrom('treasuries')
       .select('contract_id')
@@ -267,7 +283,10 @@ export class TreasuryService {
     const balances = await Promise.all(
       all.map(async (token) => {
         try {
-          return { token, balance: await this.chain.getTokenBalance(token, contractId) };
+          const balance = await this.balanceCache.get(`${token}:${contractId}`, () =>
+            this.chain.getTokenBalance(token, contractId),
+          );
+          return { token, balance };
         } catch {
           return { token, balance: null };
         }

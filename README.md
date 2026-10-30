@@ -27,11 +27,13 @@ notifications.
   carries approvals, a `policyOutdated` flag, and **content-addressed metadata committed on-chain**.
 - **Audit API.** One timeline of on-chain events and off-chain actions, with filters, cursor
   pagination and CSV export.
-- **Notifications.** Signed webhooks (JSON, Slack or Discord format) with SSRF protection,
-  retries, dead-lettering, auto-disable and a delivery log.
+- **Notifications.** Signed webhooks (JSON, Slack or Discord format) with SSRF protection, and
+  email with double opt-in and one-click unsubscribe. Both get retries, dead-lettering,
+  auto-disable and a delivery log.
 - **Operations.** OpenAPI 3.1 docs at `/docs`, liveness and readiness probes, Prometheus
-  `/metrics`, structured logs with redaction, rate limiting, security headers, graceful shutdown,
-  and a Docker image that runs as non-root.
+  `/metrics`, structured logs with redaction, rate limiting (shared through Redis across
+  replicas), security headers, graceful shutdown, and a Docker image that runs as non-root.
+  Load-tested: see [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Quick start
 
@@ -108,7 +110,8 @@ Integration tests use a real Postgres and a fake chain (`test/helpers/fake-chain
 
 - [Architecture](docs/ARCHITECTURE.md): modules, indexer design, outbox, data model
 - [Contract event schema](docs/EVENTS.md): the interface `stellarsafe-contracts` must emit
-- [Webhooks](docs/WEBHOOKS.md): payloads, signature verification, retries
+- [Notifications](docs/WEBHOOKS.md): webhook payloads, signature verification, retries, email
+- [Performance](docs/PERFORMANCE.md): load-test results and how to reproduce them
 - [Operations](docs/OPERATIONS.md): deployment, configuration, monitoring, runbooks
 - [Threat model](docs/THREAT_MODEL.md)
 - [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md)

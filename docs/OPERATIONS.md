@@ -24,6 +24,8 @@ For small deployments, `RUN_WORKERS=true` runs the worker inside the API process
 - [ ] `TRUSTED_WASM_HASHES` set to the audited contract build hash(es)
 - [ ] `METRICS_TOKEN` set, or `/metrics` blocked at the edge
 - [ ] `DATABASE_SSL=true` for managed Postgres
+- [ ] `REDIS_URL` set if you run more than one API replica (shared rate limits)
+- [ ] `SMTP_URL` and `EMAIL_FROM` set (from a domain with SPF/DKIM) to enable email notifications
 - [ ] A dedicated or paid Soroban RPC endpoint (public endpoints are rate-limited)
 
 ## Probes and monitoring

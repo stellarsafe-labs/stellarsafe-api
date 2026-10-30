@@ -3,8 +3,10 @@ import type { DB } from '../../db/index.js';
 import type { SecretBox } from '../../lib/crypto.js';
 import type { Logger } from '../../lib/logger.js';
 import { notificationDeliveries } from '../../lib/metrics.js';
-import { renderBody, type WebhookFormat } from './formats.js';
-import type { WebhookSender } from './sender.js';
+import { renderBody, renderEmail, renderVerificationEmail, type WebhookFormat } from './formats.js';
+import type { Mailer } from './mailer.js';
+import type { WebhookResult, WebhookSender } from './sender.js';
+import { EMAIL_VERIFICATION_EVENT, unsubscribeTokenFor } from './service.js';
 
 export interface DispatcherOptions {
   pollIntervalMs: number;
@@ -12,6 +14,9 @@ export interface DispatcherOptions {
   timeoutMs: number;
   disableAfterFailures: number;
   allowPrivateTargets: boolean;
+  /** Required for email subscriptions; without it email deliveries are dead-lettered. */
+  mailer?: Mailer | undefined;
+  publicUrl: string;
   batchSize?: number;
   concurrency?: number;
 }
@@ -28,9 +33,12 @@ interface ClaimedDelivery {
   event_type: string;
   payload: unknown;
   attempts: number;
-  url: string;
+  channel: 'webhook' | 'email';
+  url: string | null;
+  email: string | null;
+  verified_at: Date | null;
   format: WebhookFormat;
-  secret_encrypted: string;
+  secret_encrypted: string | null;
   enabled: boolean;
 }
 
@@ -106,6 +114,7 @@ export class NotificationDispatcher {
           SELECT gen_random_uuid(), s.id, ${row.id}, ${row.event_type}, ${JSON.stringify(row.payload)}::jsonb
           FROM notification_subscriptions s
           WHERE s.enabled
+            AND (s.channel = 'webhook' OR s.verified_at IS NOT NULL)
             AND s.created_at <= ${row.created_at}
             AND (s.contract_id IS NULL OR s.contract_id = ${row.contract_id})
             AND (cardinality(s.event_types) = 0 OR ${row.event_type} = ANY (s.event_types))
@@ -150,7 +159,7 @@ export class NotificationDispatcher {
       FROM due, notification_subscriptions s
       WHERE d.id = due.id AND s.id = d.subscription_id
       RETURNING d.id, d.subscription_id, d.event_type, d.payload, d.attempts,
-                s.url, s.format, s.secret_encrypted, s.enabled
+                s.channel, s.url, s.email, s.verified_at, s.format, s.secret_encrypted, s.enabled
     `.execute(this.db);
 
     const queue = [...claimed.rows];
@@ -166,17 +175,19 @@ export class NotificationDispatcher {
       await this.markDead(d, null, 'subscription disabled', false);
       return;
     }
-    let result;
+    if (d.channel === 'email') {
+      if (!this.opts.mailer) {
+        await this.markDead(d, null, 'email is not configured on this server', false);
+        return;
+      }
+      if (!d.verified_at && d.event_type !== EMAIL_VERIFICATION_EVENT) {
+        await this.markDead(d, null, 'email address is not verified', false);
+        return;
+      }
+    }
+    let result: WebhookResult;
     try {
-      result = await this.send({
-        url: d.url,
-        body: renderBody(d.format, d.id, d.event_type, d.payload),
-        secret: this.box.open(d.secret_encrypted),
-        eventType: d.event_type,
-        deliveryId: d.id,
-        timeoutMs: this.opts.timeoutMs,
-        allowPrivate: this.opts.allowPrivateTargets,
-      });
+      result = d.channel === 'email' ? await this.sendEmail(d) : await this.sendHook(d);
     } catch (err) {
       result = { ok: false, statusCode: null, error: (err as Error).message, retryAfter: null };
     }
@@ -226,6 +237,33 @@ export class NotificationDispatcher {
       })
       .where('id', '=', d.id)
       .execute();
+  }
+
+  private sendHook(d: ClaimedDelivery): Promise<WebhookResult> {
+    return this.send({
+      url: d.url!,
+      body: renderBody(d.format, d.id, d.event_type, d.payload),
+      secret: this.box.open(d.secret_encrypted!),
+      eventType: d.event_type,
+      deliveryId: d.id,
+      timeoutMs: this.opts.timeoutMs,
+      allowPrivate: this.opts.allowPrivateTargets,
+    });
+  }
+
+  private async sendEmail(d: ClaimedDelivery): Promise<WebhookResult> {
+    const message =
+      d.event_type === EMAIL_VERIFICATION_EVENT
+        ? renderVerificationEmail(
+            this.opts.publicUrl,
+            this.box.open((d.payload as { tokenSealed: string }).tokenSealed),
+          )
+        : renderEmail(d.event_type, d.payload, {
+            publicUrl: this.opts.publicUrl,
+            unsubscribeToken: unsubscribeTokenFor(this.box, d.subscription_id),
+          });
+    await this.opts.mailer!({ to: d.email!, ...message });
+    return { ok: true, statusCode: null, error: null, retryAfter: null };
   }
 
   private async markDead(

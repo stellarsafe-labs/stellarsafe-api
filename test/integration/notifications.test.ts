@@ -54,6 +54,7 @@ const dispatcher = (overrides: Partial<ConstructorParameters<typeof Notification
     timeoutMs: 2_000,
     disableAfterFailures: 2,
     allowPrivateTargets: true,
+    publicUrl: t.config.PUBLIC_URL,
     ...overrides,
   });
 

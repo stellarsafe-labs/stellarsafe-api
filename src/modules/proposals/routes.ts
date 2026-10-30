@@ -70,10 +70,10 @@ const metadataSchema = z
 
 const idParams = z.object({ id: contractIdSchema });
 
-export const proposalRoutes: FastifyPluginAsyncZod<{ proposals: ProposalService }> = async (
-  app,
-  { proposals },
-) => {
+export const proposalRoutes: FastifyPluginAsyncZod<{
+  proposals: ProposalService;
+  writeLimit: number;
+}> = async (app, { proposals, writeLimit }) => {
   app.get(
     '/:id/proposals',
     {
@@ -109,6 +109,7 @@ export const proposalRoutes: FastifyPluginAsyncZod<{ proposals: ProposalService 
   app.post(
     '/:id/proposal-metadata',
     {
+      config: { rateLimit: { max: writeLimit * 3, timeWindow: '1 minute' } },
       onRequest: [app.authenticate],
       schema: {
         tags: ['proposals'],
