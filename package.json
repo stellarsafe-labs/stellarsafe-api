@@ -31,7 +31,7 @@
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
   },
   "dependencies": {
-    "@fastify/cors": "^11.3.1",
+    "@fastify/cors": "^11.4.0",
     "@fastify/formbody": "^9.0.1",
     "@fastify/helmet": "^13.2.0",
     "@fastify/rate-limit": "^11.2.1",
